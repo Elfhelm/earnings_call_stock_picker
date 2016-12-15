@@ -26,6 +26,7 @@ SOURCES = [
     'Transcripts_TXT'
 ]
 
+# Buy stocks after the end of the quarter
 init_dates1 = {
     'Q1': '04-01',
     'Q2': '07-01',
@@ -39,7 +40,9 @@ init_dates2 = {
     'Q4': '01-04'
 }
 
-# These final dates are 3 months after the initial dates above
+# To change the length of time to invest over, change the final dates below
+# These final dates are 3 months after the initial dates above (i.e. we buy stocks
+#   and hold them for a quarter)
 fin_dates1 = {
     'Q1': '06-30',
     'Q2': '09-30',
@@ -81,7 +84,7 @@ fin_dates2 = {
 ##    'Q4': '01-18'
 ##}
 
-# 4 for quarters, 12 for months
+# 4 for quarters, 12 for months etc.
 MARKET_PERIODS_PER_YEAR = 4
 
 DATA_FILE = 'data_3months.csv'
@@ -99,8 +102,6 @@ YRE = re.compile('20[01]\d')
 
 ROSE = 1
 FELL = 0
-        
-##stored_data_file = open(DATA_FILE, 'a')
 
 # utility function for reading all files on a given path
 def readFiles(path):
@@ -133,18 +134,18 @@ def qValid(quarter):
     except ValueError:
         return 0
     
-# check whether the stock rose or fell in a given quarter, storing and reusing data when possible
+# get the change in stock price over a given quarter, storing and reusing data when possible
 def getPriceChange(companyName, quarter):
     call_id = companyName + "_" + quarter
+    
+    # if we already have the prices, we don't need to download them again
     if call_id in stored_data:
         init_price = float(stored_data[call_id][0])
         fin_price = float(stored_data[call_id][1])
-##        if fin_price > init_price:
-##            return 1
-##        else:
-##            return 0
+        # return percentage rate of return over time period
         return (fin_price - init_price) / init_price
-        
+
+    # if we don't already have the price, get it from Yahoo! Finance
     s = Share(companyName)
     qnum, year = quarter.split('_')
     dinit1 = init_dates1[qnum]
@@ -168,6 +169,7 @@ def getPriceChange(companyName, quarter):
     print(init_price)
     fin_price = float(s.get_historical(dfin1, dfin2)[-1]['Open'])
 
+    # store price data we don't already have
     with open(DATA_FILE, 'a') as stored_data_file:
         stored_data_file.write(companyName)
         stored_data_file.write("_")
@@ -181,12 +183,9 @@ def getPriceChange(companyName, quarter):
     call_id = companyName + "_" + quarter
     stored_data[call_id] = [init_price, fin_price]
 
-##    if (fin_price > init_price):
-##        return 1
-##    else:
-##        return 0
     return (fin_price - init_price) / init_price
 
+# convert text into features (currently does nothing)
 def getFeatures(text):
     return text
 
@@ -264,6 +263,7 @@ class DenseTransformer(TransformerMixin):
     def fit(self, X, y=None, **fit_params):
         return self
 
+# load earnings call transcripts into Pandas data frame
 data = DataFrame({'features': [], 'class': []})
 for path in SOURCES:
     data = data.append(buildDataFrame(path))
@@ -287,7 +287,8 @@ data = data.reindex(permutation)
 # Vectorizer:
 #    basic CountVectorizer: counts words in earnings call text
 #    bigrams: counts bigrams (needs feature selection to avoid overfitting)
-# Variance threshold: removes features that are the same in x% of samples
+# Feature selection:
+#    Variance threshold: removes features that are the same in x% of samples
 #    K-best feature selection reduces performance substantially
 # Tfidf transformer: converts word counts into proportions
 # Classifier: classifies stocks (results below are with basic CountVectorizer and no feature selection)
@@ -299,10 +300,13 @@ data = data.reindex(permutation)
 #    K neighbors classifier: does about 1-2% worse than the whole market for various values of K
 #    Naive Bayes-based bagging classifier: usually does around 1-2% better than the market
 #    Gradient boost: best algorithm I've found, slow but usually does around 2-3% better than the market
+#       Note: gradient boost and other ensemble algorithms do not work well at all with bigrams+feature selection.
+#       This is probably because the functionality is somewhat duplicated.
+# Current best performing combination: bigrams + variance threshold feature selection + Naive Bayes at about 4-5% above market
 pipeline = Pipeline([
 ##    ('vectorizer', CountVectorizer()),
     ('vectorizer', CountVectorizer(ngram_range=(1, 2), token_pattern=r'\b\w+\b', min_df=1)),
-    ('feature_selector', VarianceThreshold(threshold=(.85 * (1 - .85)))),
+    ('feature_selector', VarianceThreshold(threshold=(.8 * (1 - .8)))),
 ##    ('select_kbest', SelectKBest(chi2, k=500)),
     ('tfidf_transformer', TfidfTransformer()),
     ('classifier',  BernoulliNB()) ])
@@ -341,6 +345,8 @@ for train_indices, test_indices in kf.split(data):
     scores.append(score)
 
     # calculate profits from investing in each test set using predictions
+    # ML strategy: choose stocks based on algorithm, invest equal money in each
+    # 'Index fund'/default strategy: invest equal money in all stocks
     normalized_profit_index_fund = 0
     normalized_profit_ml = 0
     portfolio_size_ml = 0
