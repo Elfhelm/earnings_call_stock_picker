@@ -56,33 +56,33 @@ fin_dates2 = {
     'Q4': '04-04'
 }
 
-### These are 1 month after the initial dates
-##fin_dates1 = {
-##    'Q1': '04-30',
-##    'Q2': '07-31',
-##    'Q3': '10-31',
-##    'Q4': '01-31'
-##}
-##fin_dates2 = {
-##    'Q1': '05-04',
-##    'Q2': '08-04',
-##    'Q3': '11-04',
-##    'Q4': '02-04'
-##}
+## These are 1 month after the initial dates
+#fin_dates1 = {
+#    'Q1': '04-30',
+#    'Q2': '07-31',
+#    'Q3': '10-31',
+#    'Q4': '01-31'
+#}
+#fin_dates2 = {
+#    'Q1': '05-04',
+#    'Q2': '08-04',
+#    'Q3': '11-04',
+#    'Q4': '02-04'
+#}
 
-### 2 weeks after initial dates
-##fin_dates1 = {
-##    'Q1': '04-15',
-##    'Q2': '07-15',
-##    'Q3': '10-15',
-##    'Q4': '01-15'
-##}
-##fin_dates2 = {
-##    'Q1': '04-18',
-##    'Q2': '07-18',
-##    'Q3': '10-18',
-##    'Q4': '01-18'
-##}
+## 2 weeks after initial dates
+#fin_dates1 = {
+#    'Q1': '04-15',
+#    'Q2': '07-15',
+#    'Q3': '10-15',
+#    'Q4': '01-15'
+#}
+#fin_dates2 = {
+#    'Q1': '04-18',
+#    'Q2': '07-18',
+#    'Q3': '10-18',
+#    'Q4': '01-18'
+#}
 
 # 4 for quarters, 12 for months etc.
 MARKET_PERIODS_PER_YEAR = 4
@@ -103,8 +103,9 @@ YRE = re.compile('20[01]\d')
 ROSE = 1
 FELL = 0
 
+
 # utility function for reading all files on a given path
-def readFiles(path):
+def read_files(path):
     for root, dir_names, file_names in os.walk(path):
         for path in dir_names:
             read_files(os.path.join(root, path))
@@ -123,8 +124,9 @@ def readFiles(path):
                     content = NEWLINE.join(lines)
                     yield file_path, content
 
+
 # check if a quarter number is valid
-def qValid(quarter):
+def q_valid(quarter):
     try:
         qnum, year = quarter.split('_')
         if QRE.match(qnum) and YRE.match(year) and int(year) < 2016:
@@ -133,11 +135,12 @@ def qValid(quarter):
             return 0
     except ValueError:
         return 0
-    
+
+
 # get the change in stock price over a given quarter, storing and reusing data when possible
-def getPriceChange(companyName, quarter):
+def get_price_change(companyName, quarter):
     call_id = companyName + "_" + quarter
-    
+
     # if we already have the prices, we don't need to download them again
     if call_id in stored_data:
         init_price = float(stored_data[call_id][0])
@@ -152,7 +155,7 @@ def getPriceChange(companyName, quarter):
     dinit2 = init_dates2[qnum]
     dfin1 = fin_dates1[qnum]
     dfin2 = fin_dates2[qnum]
-    
+
     if (qnum == 'Q4'):
         year = str(int(year) + 1)
     if (qnum == 'Q3' and year == '2016'):
@@ -185,12 +188,14 @@ def getPriceChange(companyName, quarter):
 
     return (fin_price - init_price) / init_price
 
+
 # convert text into features (currently does nothing)
-def getFeatures(text):
+def get_features(text):
     return text
 
+
 # parse each call transcript into useful text
-def parseCall(comp, call_text):
+def parse_call(comp, call_text):
     output = ''
     quarter = ''
     call_ID = comp
@@ -201,7 +206,7 @@ def parseCall(comp, call_text):
         if h[0][0] == 'Q':
             call_ID += "_" + h
             quarter += h + '_'
-        elif h[0][0] == '2' or  h[0][0] == '1':
+        elif h[0][0] == '2' or h[0][0] == '1':
             call_ID += "_" + h
             quarter += h
             break
@@ -215,44 +220,46 @@ def parseCall(comp, call_text):
     speaker = ''
     call_lines = call_lines[15:]
 
-    for l in call_lines:            
+    for l in call_lines:
         output = output + str(l) + " "
 
     return output, quarter
 
+
 # get company name, quarter, and useful reformatted text from raw call transcript files
-def parseFile(fileName, text):
+def parse_file(fileName, text):
     companyName = fileName.split('_')[-1].split('.')[0]
 
     with open(fileName, 'r') as trans_file:
         content = trans_file.read()
-        calls = content.split('\n HD\n')[1:] # Skip the first which is the table of contents
+        calls = content.split('\n HD\n')[1:]  # Skip the first which is the table of contents
         for c in calls:
-            callText, quarter = parseCall(companyName, c)
+            callText, quarter = parse_call(companyName, c)
 
             yield companyName, quarter, callText
 
+
 # highest level function - formats data as a Pandas data frame
-def buildDataFrame(path):
+def build_data_frame(path):
     rows = []
     index = []
-    for fileName, text in readFiles(path):
+    for fileName, text in read_files(path):
         print('Loading', fileName)
-        for companyName, quarter, callText in parseFile(fileName, text):
+        for companyName, quarter, callText in parse_file(fileName, text):
             if quarter == 'Q4_2016':
                 continue
-            if not qValid(quarter):
+            if not q_valid(quarter):
                 continue
-            
-            rows.append({'features': getFeatures(callText), 'class': getPriceChange(companyName, quarter)})
+
+            rows.append({'features': get_features(callText), 'class': get_price_change(companyName, quarter)})
             index.append(companyName + '_' + quarter)
 
     data_frame = DataFrame(rows, index=index)
     return data_frame
 
+
 # class for transforming data from sparse to dense matrix - needed for gradient boosting
 class DenseTransformer(TransformerMixin):
-
     def transform(self, X, y=None, **fit_params):
         return X.todense()
 
@@ -266,7 +273,7 @@ class DenseTransformer(TransformerMixin):
 # load earnings call transcripts into Pandas data frame
 data = DataFrame({'features': [], 'class': []})
 for path in SOURCES:
-    data = data.append(buildDataFrame(path))
+    data = data.append(build_data_frame(path))
 
 # remove duplicate entries
 data = data.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
@@ -304,19 +311,19 @@ data = data.reindex(permutation)
 #       This is probably because the functionality is somewhat duplicated.
 # Current best performing combination: bigrams + variance threshold feature selection + Naive Bayes at about 4-5% above market
 pipeline = Pipeline([
-##    ('vectorizer', CountVectorizer()),
+    ##    ('vectorizer', CountVectorizer()),
     ('vectorizer', CountVectorizer(ngram_range=(1, 2), token_pattern=r'\b\w+\b', min_df=1)),
     ('feature_selector', VarianceThreshold(threshold=(.8 * (1 - .8)))),
-##    ('select_kbest', SelectKBest(chi2, k=500)),
+    ##    ('select_kbest', SelectKBest(chi2, k=500)),
     ('tfidf_transformer', TfidfTransformer()),
-    ('classifier',  BernoulliNB()) ])
-##    ('classifier', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))  ])
-##    ('classifier', SGDClassifier(loss='log'))  ])
-##    ('classifier', RandomForestClassifier(n_estimators=10, max_depth=None, min_samples_split=2, random_state=0))  ])
-##    ('classifier', DecisionTreeClassifier(max_depth=None, min_samples_split=2, random_state=0))  ])
-##    ('classifier', KNeighborsClassifier(n_neighbors=3))  ])
-##    ('classifier', BaggingClassifier(BernoulliNB(), max_samples=1.0, max_features=1.0))  ])
-##    ('densifier', DenseTransformer()), ('classifier', GradientBoostingClassifier(n_estimators=20, learning_rate=1.0, max_depth=1, random_state=0))  ])
+    ('classifier', BernoulliNB())])
+#    ('classifier', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))  ])
+#    ('classifier', SGDClassifier(loss='log'))  ])
+#    ('classifier', RandomForestClassifier(n_estimators=10, max_depth=None, min_samples_split=2, random_state=0))  ])
+#    ('classifier', DecisionTreeClassifier(max_depth=None, min_samples_split=2, random_state=0))  ])
+#    ('classifier', KNeighborsClassifier(n_neighbors=3))  ])
+#    ('classifier', BaggingClassifier(BernoulliNB(), max_samples=1.0, max_features=1.0))  ])
+#    ('densifier', DenseTransformer()), ('classifier', GradientBoostingClassifier(n_estimators=20, learning_rate=1.0, max_depth=1, random_state=0))  ])
 
 print("")
 
@@ -330,7 +337,7 @@ sum_apy_ml = 0
 sum_apy_index_fund = 0
 for train_indices, test_indices in kf.split(data):
     print("Training and testing fold", str(i))
-    
+
     train_text = data.iloc[train_indices]['features'].values
     train_y = data.iloc[train_indices]['class'].values
 
@@ -338,7 +345,7 @@ for train_indices, test_indices in kf.split(data):
     test_y = data.iloc[test_indices]['class'].values
 
     pipeline.fit(train_text, train_y)
-    predictions = pipeline.predict(test_text)    
+    predictions = pipeline.predict(test_text)
 
     confusion += confusion_matrix(test_y, predictions)
     score = f1_score(test_y, predictions, pos_label=ROSE)
@@ -359,12 +366,12 @@ for train_indices, test_indices in kf.split(data):
         if predictions[prediction_index] == 1:
             normalized_profit_ml += (fin_price - init_price) / init_price
             portfolio_size_ml += 1
-        
+
     normalized_profit_index_fund = normalized_profit_index_fund / len(test_indices)
-    annualized_profit_index_fund = (1 + normalized_profit_index_fund)**MARKET_PERIODS_PER_YEAR - 1
+    annualized_profit_index_fund = (1 + normalized_profit_index_fund) ** MARKET_PERIODS_PER_YEAR - 1
     normalized_profit_ml = normalized_profit_ml / portfolio_size_ml
-    annualized_profit_ml = (1 + normalized_profit_ml)**MARKET_PERIODS_PER_YEAR - 1
-    
+    annualized_profit_ml = (1 + normalized_profit_ml) ** MARKET_PERIODS_PER_YEAR - 1
+
     print('APY from machine learning strategy for set ' + str(i) + ':', annualized_profit_ml)
     print('APY from index fund (control strategy) for set ' + str(i) + ':', annualized_profit_index_fund)
 
@@ -381,6 +388,6 @@ print('Average APY from index fund strategy:', avg_apy_index_fund)
 print('')
 
 print('Total stocks classified:', len(data))
-print('Score:', sum(scores)/len(scores))
+print('Score:', sum(scores) / len(scores))
 print('Confusion matrix:')
 print(confusion)
