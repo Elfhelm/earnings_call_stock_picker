@@ -19,6 +19,8 @@ from sklearn.model_selection import KFold
 from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.base import TransformerMixin
 
+import vector_gen
+
 NEWLINE = '\n'
 SKIP_FILES = {'.DS_Store'}
 
@@ -102,7 +104,6 @@ YRE = re.compile('20[01]\d')
 
 ROSE = 1
 FELL = 0
-
 
 # utility function for reading all files on a given path
 def read_files(path):
@@ -257,7 +258,6 @@ def build_data_frame(path):
     data_frame = DataFrame(rows, index=index)
     return data_frame
 
-
 # class for transforming data from sparse to dense matrix - needed for gradient boosting
 class DenseTransformer(TransformerMixin):
     def transform(self, X, y=None, **fit_params):
@@ -270,21 +270,45 @@ class DenseTransformer(TransformerMixin):
     def fit(self, X, y=None, **fit_params):
         return self
 
+# begin code using NLP data
+test_tags = {}
+with open('train_tags_large.csv', mode='r') as infile:
+    reader = csv.reader(infile)
+    for rows in reader:
+        if rows != []:
+            test_tags[rows[1]] = rows[0]
+
+features_out = np.genfromtxt('train_features_out.csv', delimiter=',')
+features2 = []
+index2 = []
+for rows in features_out:
+    companyName = test_tags[str(int(rows[0]))].upper().split('_')[0]
+    quarter = test_tags[str(int(rows[0]))].upper().split('_')[1] + '_' + \
+              test_tags[str(int(rows[0]))].upper().split('_')[2]
+    print(companyName, quarter)
+    if q_valid(quarter):
+        features2.append({'features': rows[1:], 'class': get_price_change(companyName, quarter)})
+        index2.append(test_tags[str(int(rows[0]))].upper())
+
+data2 = DataFrame(features2, index=index2)
+
 # load earnings call transcripts into Pandas data frame
-data = DataFrame({'features': [], 'class': []})
-for path in SOURCES:
-    data = data.append(build_data_frame(path))
+# data = DataFrame({'features': [], 'class': []})
+# for path in SOURCES:
+#     data = data.append(build_data_frame(path))
+
+#vector_gen.main()
 
 # remove duplicate entries
-data = data.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
+data2 = data2.reset_index().drop_duplicates(subset='index', keep='last').set_index('index')
 
 # binarize price changes so we can classify stocks into 'buy' or 'do not buy'
 # it's interesting to experiment with the threshold - here I've set the program to look for returns of
 #    at least 0.5%
 # however, the results don't seem to be much different from those at 0 or 1%
 binarizer = Binarizer(threshold=0.005)
-temp = data['class'].values.reshape(1, -1)
-data['class'] = binarizer.transform(temp)[0]
+temp = data2['class'].values.reshape(1, -1)
+data2['class'] = binarizer.transform(temp)[0]
 
 overall_avg_apy_ml = 0
 overall_avg_apy_index = 0
@@ -292,8 +316,8 @@ overall_avg_apy_index = 0
 for j in range(0,3):
 
     # shuffle data
-    permutation = np.random.permutation(data.index)
-    data = data.reindex(permutation)
+    permutation = np.random.permutation(data2.index)
+    data2 = data2.reindex(permutation)
 
     # ML pipeline
     # Vectorizer:
@@ -317,18 +341,19 @@ for j in range(0,3):
     # Current best performing combination: bigrams + variance threshold feature selection + Naive Bayes at about 3-5% above market
     pipeline = Pipeline([
         # ('vectorizer', CountVectorizer()),
-        ('vectorizer', CountVectorizer(ngram_range=(1, 2), token_pattern=r'\b\w+\b', min_df=1)),
-        ('feature_selector', VarianceThreshold(threshold=(.8 * (1 - .8)))),
+        #('vectorizer', CountVectorizer(ngram_range=(1, 2), token_pattern=r'\b\w+\b', min_df=1)),
+        # ('feature_selector', VarianceThreshold(threshold=(.8 * (1 - .8)))),
         # ('select_kbest', SelectKBest(chi2, k=500)),
-        ('tfidf_transformer', TfidfTransformer()),
-        ('classifier', BernoulliNB())])
+        # ('tfidf_transformer', TfidfTransformer()),
+        # ('classifier', BernoulliNB())])
         # ('classifier', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))  ])
         # ('classifier', SGDClassifier(loss='log'))  ])
-        # ('classifier', RandomForestClassifier(n_estimators=10, max_depth=None, min_samples_split=2, random_state=0))  ])
-    #    ('classifier', DecisionTreeClassifier(max_depth=None, min_samples_split=2, random_state=0))  ])
-    #    ('classifier', KNeighborsClassifier(n_neighbors=3))  ])
-    #     ('classifier', BaggingClassifier(BernoulliNB(), max_samples=1.0, max_features=1.0))  ])
-    #     ('densifier', DenseTransformer()), ('classifier', GradientBoostingClassifier(n_estimators=20, learning_rate=1.0, max_depth=1, random_state=0))  ])
+        ('classifier', RandomForestClassifier(n_estimators=10, max_depth=None, min_samples_split=2, random_state=0))  ])
+        # ('classifier', DecisionTreeClassifier(max_depth=None, min_samples_split=2, random_state=0))  ])
+        # ('classifier', KNeighborsClassifier(n_neighbors=3))  ])
+        # ('classifier', BaggingClassifier(BernoulliNB(), max_samples=1.0, max_features=1.0))  ])
+        # ('densifier', DenseTransformer()),
+        # ('classifier', GradientBoostingClassifier(n_estimators=20, learning_rate=1.0, max_depth=1, random_state=0))  ])
 
     print("")
 
@@ -340,14 +365,17 @@ for j in range(0,3):
     i = 1
     sum_apy_ml = 0
     sum_apy_index_fund = 0
-    for train_indices, test_indices in kf.split(data):
+    for train_indices, test_indices in kf.split(data2):
         print("Training and testing fold", str(i))
 
-        train_text = data.iloc[train_indices]['features'].values
-        train_y = data.iloc[train_indices]['class'].values
+        train_text = data2.iloc[train_indices]['features'].values
+        train_y = data2.iloc[train_indices]['class'].values
 
-        test_text = data.iloc[test_indices]['features'].values
-        test_y = data.iloc[test_indices]['class'].values
+        test_text = data2.iloc[test_indices]['features'].values
+        test_y = data2.iloc[test_indices]['class'].values
+
+        train_text = np.vstack(train_text)
+        test_text = np.vstack(test_text)
 
         pipeline.fit(train_text, train_y)
         predictions = pipeline.predict(test_text)
@@ -363,7 +391,7 @@ for j in range(0,3):
         normalized_profit_ml = 0
         portfolio_size_ml = 0
         for index in test_indices:
-            stock = data.iloc[index].name
+            stock = data2.iloc[index].name
             init_price = float(stored_data[stock][0])
             fin_price = float(stored_data[stock][1])
             normalized_profit_index_fund += (fin_price - init_price) / init_price
@@ -401,7 +429,7 @@ print('Average APY from index fund strategy:', overall_avg_apy_index / 3)
 print('Difference:', overall_avg_apy_ml / 3 - overall_avg_apy_index / 3)
 print('')
 
-print('Total stocks classified:', len(data))
+print('Total stocks classified:', len(data2))
 print('Score:', sum(scores) / len(scores))
 print('Confusion matrix:')
 print(confusion)
