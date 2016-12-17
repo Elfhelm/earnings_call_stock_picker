@@ -244,7 +244,7 @@ def build_data_frame(path):
     rows = []
     index = []
     for fileName, text in read_files(path):
-        print('Loading', fileName)
+        print('Loading:', fileName)
         for companyName, quarter, callText in parse_file(fileName, text):
             if quarter == 'Q4_2016':
                 continue
@@ -286,105 +286,119 @@ binarizer = Binarizer(threshold=0.005)
 temp = data['class'].values.reshape(1, -1)
 data['class'] = binarizer.transform(temp)[0]
 
-# shuffle data
-permutation = np.random.permutation(data.index)
-data = data.reindex(permutation)
+overall_avg_apy_ml = 0
+overall_avg_apy_index = 0
 
-# ML pipeline
-# Vectorizer:
-#    basic CountVectorizer: counts words in earnings call text
-#    bigrams: counts bigrams (needs feature selection to avoid overfitting)
-# Feature selection:
-#    Variance threshold: removes features that are the same in x% of samples
-#    K-best feature selection reduces performance substantially
-# Tfidf transformer: converts word counts into proportions
-# Classifier: classifies stocks (results below are with basic CountVectorizer and no feature selection)
-#    Naive Bayes: tends to do about 0.5-1% better than the whole market; results are more stable than other algorithms
-#    SVM: does about 0.5-1% better than the whole market (often advises buying every stock in the portfolio)
-#    Logistic regression: probably does a little better than the whole market
-#    Random forest classifier: probably does a little better than the whole market
-#    Decision tree classifier: does a little worse than the whole market
-#    K neighbors classifier: does about 1-2% worse than the whole market for various values of K
-#    Naive Bayes-based bagging classifier: usually does around 1-2% better than the market
-#    Gradient boost: best algorithm I've found, slow but usually does around 2-3% better than the market
-#       Note: gradient boost and other ensemble algorithms do not work well at all with bigrams+feature selection.
-#       This is probably because the functionality is somewhat duplicated.
-# Current best performing combination: bigrams + variance threshold feature selection + Naive Bayes at about 4-5% above market
-pipeline = Pipeline([
-    ##    ('vectorizer', CountVectorizer()),
-    ('vectorizer', CountVectorizer(ngram_range=(1, 2), token_pattern=r'\b\w+\b', min_df=1)),
-    ('feature_selector', VarianceThreshold(threshold=(.8 * (1 - .8)))),
-    ##    ('select_kbest', SelectKBest(chi2, k=500)),
-    ('tfidf_transformer', TfidfTransformer()),
-    ('classifier', BernoulliNB())])
-#    ('classifier', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))  ])
-#    ('classifier', SGDClassifier(loss='log'))  ])
-#    ('classifier', RandomForestClassifier(n_estimators=10, max_depth=None, min_samples_split=2, random_state=0))  ])
-#    ('classifier', DecisionTreeClassifier(max_depth=None, min_samples_split=2, random_state=0))  ])
-#    ('classifier', KNeighborsClassifier(n_neighbors=3))  ])
-#    ('classifier', BaggingClassifier(BernoulliNB(), max_samples=1.0, max_features=1.0))  ])
-#    ('densifier', DenseTransformer()), ('classifier', GradientBoostingClassifier(n_estimators=20, learning_rate=1.0, max_depth=1, random_state=0))  ])
+for j in range(0,3):
 
-print("")
+    # shuffle data
+    permutation = np.random.permutation(data.index)
+    data = data.reindex(permutation)
 
-# k-fold cross validation
-k = 6
-kf = KFold(n_splits=k, random_state=None, shuffle=False)
-scores = []
-confusion = np.array([[0, 0], [0, 0]])
-i = 1
-sum_apy_ml = 0
-sum_apy_index_fund = 0
-for train_indices, test_indices in kf.split(data):
-    print("Training and testing fold", str(i))
+    # ML pipeline
+    # Vectorizer:
+    #    basic CountVectorizer: counts words in earnings call text
+    #    bigrams: counts bigrams (needs feature selection to avoid overfitting)
+    # Feature selection:
+    #    Variance threshold: removes features that are the same in x% of samples
+    #    K-best feature selection reduces performance substantially
+    # Tfidf transformer: converts word counts into proportions
+    # Classifier: classifies stocks (results below are with basic CountVectorizer and no feature selection)
+    #    Naive Bayes: tends to do about 0.5-1% better than the whole market; results are more stable than other algorithms
+    #    SVM: does about 0.5-1% better than the whole market (often advises buying every stock in the portfolio)
+    #    Logistic regression: probably does a little better than the whole market
+    #    Random forest classifier: probably does a little better than the whole market
+    #    Decision tree classifier: does a little worse than the whole market
+    #    K neighbors classifier: does about 1-2% worse than the whole market for various values of K
+    #    Naive Bayes-based bagging classifier: usually does around 1-2% better than the market
+    #    Gradient boost: best algorithm I've found, slow but usually does around 2-3% better than the market
+    #       Note: gradient boost and other ensemble algorithms do not work well at all with bigrams+feature selection.
+    #       This is probably because the functionality is somewhat duplicated.
+    # Current best performing combination: bigrams + variance threshold feature selection + Naive Bayes at about 3-5% above market
+    pipeline = Pipeline([
+        # ('vectorizer', CountVectorizer()),
+        ('vectorizer', CountVectorizer(ngram_range=(1, 2), token_pattern=r'\b\w+\b', min_df=1)),
+        ('feature_selector', VarianceThreshold(threshold=(.8 * (1 - .8)))),
+        # ('select_kbest', SelectKBest(chi2, k=500)),
+        ('tfidf_transformer', TfidfTransformer()),
+        ('classifier', BernoulliNB())])
+        # ('classifier', SGDClassifier(loss='hinge', penalty='l2', alpha=1e-3, n_iter=5, random_state=42))  ])
+        # ('classifier', SGDClassifier(loss='log'))  ])
+        # ('classifier', RandomForestClassifier(n_estimators=10, max_depth=None, min_samples_split=2, random_state=0))  ])
+    #    ('classifier', DecisionTreeClassifier(max_depth=None, min_samples_split=2, random_state=0))  ])
+    #    ('classifier', KNeighborsClassifier(n_neighbors=3))  ])
+    #     ('classifier', BaggingClassifier(BernoulliNB(), max_samples=1.0, max_features=1.0))  ])
+    #     ('densifier', DenseTransformer()), ('classifier', GradientBoostingClassifier(n_estimators=20, learning_rate=1.0, max_depth=1, random_state=0))  ])
 
-    train_text = data.iloc[train_indices]['features'].values
-    train_y = data.iloc[train_indices]['class'].values
+    print("")
 
-    test_text = data.iloc[test_indices]['features'].values
-    test_y = data.iloc[test_indices]['class'].values
+    # k-fold cross validation
+    k = 6
+    kf = KFold(n_splits=k, random_state=None, shuffle=False)
+    scores = []
+    confusion = np.array([[0, 0], [0, 0]])
+    i = 1
+    sum_apy_ml = 0
+    sum_apy_index_fund = 0
+    for train_indices, test_indices in kf.split(data):
+        print("Training and testing fold", str(i))
 
-    pipeline.fit(train_text, train_y)
-    predictions = pipeline.predict(test_text)
+        train_text = data.iloc[train_indices]['features'].values
+        train_y = data.iloc[train_indices]['class'].values
 
-    confusion += confusion_matrix(test_y, predictions)
-    score = f1_score(test_y, predictions, pos_label=ROSE)
-    scores.append(score)
+        test_text = data.iloc[test_indices]['features'].values
+        test_y = data.iloc[test_indices]['class'].values
 
-    # calculate profits from investing in each test set using predictions
-    # ML strategy: choose stocks based on algorithm, invest equal money in each
-    # 'Index fund'/default strategy: invest equal money in all stocks
-    normalized_profit_index_fund = 0
-    normalized_profit_ml = 0
-    portfolio_size_ml = 0
-    for index in test_indices:
-        stock = data.iloc[index].name
-        init_price = float(stored_data[stock][0])
-        fin_price = float(stored_data[stock][1])
-        normalized_profit_index_fund += (fin_price - init_price) / init_price
-        prediction_index = np.where(test_indices == index)[0][0]
-        if predictions[prediction_index] == 1:
-            normalized_profit_ml += (fin_price - init_price) / init_price
-            portfolio_size_ml += 1
+        pipeline.fit(train_text, train_y)
+        predictions = pipeline.predict(test_text)
 
-    normalized_profit_index_fund = normalized_profit_index_fund / len(test_indices)
-    annualized_profit_index_fund = (1 + normalized_profit_index_fund) ** MARKET_PERIODS_PER_YEAR - 1
-    normalized_profit_ml = normalized_profit_ml / portfolio_size_ml
-    annualized_profit_ml = (1 + normalized_profit_ml) ** MARKET_PERIODS_PER_YEAR - 1
+        confusion += confusion_matrix(test_y, predictions)
+        score = f1_score(test_y, predictions, pos_label=ROSE)
+        scores.append(score)
 
-    print('APY from machine learning strategy for set ' + str(i) + ':', annualized_profit_ml)
-    print('APY from index fund (control strategy) for set ' + str(i) + ':', annualized_profit_index_fund)
+        # calculate profits from investing in each test set using predictions
+        # ML strategy: choose stocks based on algorithm, invest equal money in each
+        # 'Index fund'/default strategy: invest equal money in all stocks
+        normalized_profit_index_fund = 0
+        normalized_profit_ml = 0
+        portfolio_size_ml = 0
+        for index in test_indices:
+            stock = data.iloc[index].name
+            init_price = float(stored_data[stock][0])
+            fin_price = float(stored_data[stock][1])
+            normalized_profit_index_fund += (fin_price - init_price) / init_price
+            prediction_index = np.where(test_indices == index)[0][0]
+            if predictions[prediction_index] == 1:
+                normalized_profit_ml += (fin_price - init_price) / init_price
+                portfolio_size_ml += 1
 
-    sum_apy_ml += annualized_profit_ml
-    sum_apy_index_fund += annualized_profit_index_fund
+        normalized_profit_index_fund = normalized_profit_index_fund / len(test_indices)
+        annualized_profit_index_fund = (1 + normalized_profit_index_fund) ** MARKET_PERIODS_PER_YEAR - 1
+        normalized_profit_ml = normalized_profit_ml / portfolio_size_ml
+        annualized_profit_ml = (1 + normalized_profit_ml) ** MARKET_PERIODS_PER_YEAR - 1
 
-    i += 1
+        print('APY from machine learning strategy for set ' + str(i) + ':', annualized_profit_ml)
+        print('APY from index fund (control strategy) for set ' + str(i) + ':', annualized_profit_index_fund)
 
-avg_apy_ml = sum_apy_ml / k
-avg_apy_index_fund = sum_apy_index_fund / k
+        sum_apy_ml += annualized_profit_ml
+        sum_apy_index_fund += annualized_profit_index_fund
+
+        i += 1
+
+    avg_apy_ml = sum_apy_ml / k
+    avg_apy_index_fund = sum_apy_index_fund / k
+    print('')
+    print('Average APY from ML strategy:', avg_apy_ml)
+    print('Average APY from index fund strategy:', avg_apy_index_fund)
+    print('')
+
+    overall_avg_apy_ml += avg_apy_ml
+    overall_avg_apy_index += avg_apy_index_fund
+
 print('')
-print('Average APY from ML strategy:', avg_apy_ml)
-print('Average APY from index fund strategy:', avg_apy_index_fund)
+print('Average APY from ML strategy:', overall_avg_apy_ml / 3)
+print('Average APY from index fund strategy:', overall_avg_apy_index / 3)
+print('Difference:', overall_avg_apy_ml / 3 - overall_avg_apy_index / 3)
 print('')
 
 print('Total stocks classified:', len(data))
